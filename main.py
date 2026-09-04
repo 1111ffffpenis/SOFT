@@ -1,20 +1,35 @@
 import os
 import zipfile
-import io
 import re
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from openpyxl.styles import Font, PatternFill
 
 USER_SETTINGS = {}
 
-# Целевые колонки
+# Единый целевой формат колонок
 TARGET_COLUMNS = [
     'id', 'fio', 'check_in', 'check_out', 'price', 'currency', 
     'email', 'phone', 'hotel_name', 'address', 'image', 'urls'
 ]
 
-# Синонимы 
+# Фиксированные гарантированные ширины колонок для защиты от наложения текста
+COLUMN_WIDTHS = {
+    'A': 18, # id
+    'B': 28, # fio
+    'C': 14, # check_in
+    'D': 14, # check_out
+    'E': 14, # price
+    'F': 14, # currency
+    'G': 32, # email
+    'H': 18, # phone
+    'I': 35, # hotel_name
+    'J': 45, # address
+    'K': 35, # image
+    'L': 25  # urls
+}
+
 COLUMN_ALIASES = {
     'id': ['id', 'resv_id', 'booking_id', 'reservation_id', 'reservation', 'order_id', 'номер_брони', 'номер', 'src_id', 'room_id'],
     'fio': ['fio', 'guest_name', 'customer_name', 'guest', 'name', 'full_name', 'фио', 'имя', 'клиент'],
@@ -31,8 +46,7 @@ COLUMN_ALIASES = {
 }
 
 def robust_read_csv(file_path):
-    """Бронебойная функция чтения файла. Защищает от слипания колонок."""
-    # 1. Пробуем стандартное автоопределение
+    """Чтение CSV/TXT с подбором разделителя для предотвращения сжатия столбцов."""
     try:
         df = pd.read_csv(file_path, sep=None, engine='python', dtype=str, on_bad_lines='skip')
         if len(df.columns) > 1:
@@ -40,7 +54,6 @@ def robust_read_csv(file_path):
     except Exception:
         pass
     
-    # 2. Если колонки слиплись, принудительно перебираем разделители
     for sep in [';', ',', '\t', '|']:
         try:
             df = pd.read_csv(file_path, sep=sep, dtype=str, on_bad_lines='skip')
@@ -49,15 +62,12 @@ def robust_read_csv(file_path):
         except Exception:
             continue
             
-    # 3. Крайний фолбэк
     return pd.read_csv(file_path, sep=',', dtype=str, on_bad_lines='skip')
 
-
 def standardize_dataframe(df):
-    """Приводит DataFrame к единой структуре и восстанавливает данные."""
+    """Приводит колонки к единому стандарту и заполняет недостающие поля."""
     new_df = pd.DataFrame()
     
-    # Нормализуем названия колонок (заменяем пробелы и тире на нижнее подчеркивание)
     df_cols = {}
     for col in df.columns:
         norm_col = re.sub(r'[\s\.\-]+', '_', str(col).strip().lower())
@@ -68,13 +78,11 @@ def standardize_dataframe(df):
         matched_col = None
         aliases = COLUMN_ALIASES.get(target, [target])
         
-        # Точное совпадение
         for alias in aliases:
             if alias in df_cols and df_cols[alias] not in used_cols:
                 matched_col = df_cols[alias]
                 break
                 
-        # Умное совпадение (если точного нет, ищем только отдельные слова, а не обрывки)
         if not matched_col:
             for alias in aliases:
                 for norm_col, orig_col in df_cols.items():
@@ -92,7 +100,7 @@ def standardize_dataframe(df):
         else:
             new_df[target] = pd.NA
 
-    # Подстановка стандартных текстовых заполнителей
+    # Шаблоны по умолчанию
     mask_hotel = new_df['hotel_name'].isna() & new_df['id'].notna() & (new_df['id'] != '')
     clean_ids = new_df['id'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
     new_df.loc[mask_hotel, 'hotel_name'] = "Hotel confirmation for reservation " + clean_ids[mask_hotel]
@@ -105,29 +113,24 @@ def standardize_dataframe(df):
 
     return new_df
 
-
-def save_excel_autofit(df, filename):
-    """Сохраняет XLSX и АВТОМАТИЧЕСКИ раздвигает колонки, чтобы текст не налегал друг на друга."""
+def save_excel_perfect(df, filename):
+    """Сохраняет XLSX с фиксированными широкими колонками и форматированием."""
     writer = pd.ExcelWriter(filename, engine='openpyxl')
     df.to_excel(writer, index=False, sheet_name='Data')
     worksheet = writer.sheets['Data']
     
-    for col in worksheet.columns:
-        max_length = 0
-        column = col[0].column_letter # Получаем букву колонки (A, B, C...)
-        for cell in col:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
+    # Задаем гарантированную ширину столбцов
+    for col_letter, width in COLUMN_WIDTHS.items():
+        worksheet.column_dimensions[col_letter].width = width
         
-        # Делаем ширину чуть больше текста (максимум 50, чтобы не было гигантских ячеек)
-        adjusted_width = min(max_length + 2, 50) 
-        worksheet.column_dimensions[column].width = adjusted_width
-        
-    writer.close()
+    # Выделяем шапку серым фоном и жирным шрифтом
+    header_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+    header_font = Font(bold=True)
+    for cell in worksheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
 
+    writer.close()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -157,7 +160,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{doc.file_id}_{doc.file_name}"
     await file.download_to_drive(file_path)
     
-    msg = await update.message.reply_text("Обрабатываю файлы (защита от слипания строк активирована)...")
+    msg = await update.message.reply_text("Обрабатываю файлы и форматирую таблицу...")
 
     try:
         dfs = []
@@ -190,9 +193,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_chunk_rows = len(chunk)
             
             out_name = f"output_part_{part + 1}_{current_chunk_rows}rows.xlsx"
-            
-            # Сохраняем с умной авто-шириной колонок!
-            save_excel_autofit(chunk, out_name)
+            save_excel_perfect(chunk, out_name)
             
             with open(out_name, 'rb') as f:
                 await update.message.reply_document(
