@@ -1,24 +1,26 @@
 import os
 import zipfile
+import io
+import re
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 USER_SETTINGS = {}
 
-# Единый целевой формат колонок
+# Целевые колонки
 TARGET_COLUMNS = [
     'id', 'fio', 'check_in', 'check_out', 'price', 'currency', 
     'email', 'phone', 'hotel_name', 'address', 'image', 'urls'
 ]
 
-# Варианты названий колонок в различных выгрузках (включая Euro.csv)
+# Синонимы 
 COLUMN_ALIASES = {
-    'id': ['resv_id', 'booking_id', 'reservation_id', 'order_id', 'id', 'номер_брони', 'номер', 'src_id', 'room_id'],
-    'fio': ['guest_name', 'customer_name', 'fio', 'guest', 'name', 'full_name', 'фио', 'имя', 'клиент'],
-    'check_in': ['check_in_date', 'checkin_date', 'check_in', 'checkin', 'arrival_date', 'arrival', 'заезд', 'дата_заезда', 'date_in', 'start_date'],
-    'check_out': ['check_out_date', 'checkout_date', 'check_out', 'checkout', 'departure_date', 'departure', 'выезд', 'дата_выезда', 'date_out', 'end_date'],
-    'price': ['total_price', 'total_amount', 'price_total', 'price', 'amount', 'total', 'cost', 'цена', 'сумма', 'стоимость'],
+    'id': ['id', 'resv_id', 'booking_id', 'reservation_id', 'reservation', 'order_id', 'номер_брони', 'номер', 'src_id', 'room_id'],
+    'fio': ['fio', 'guest_name', 'customer_name', 'guest', 'name', 'full_name', 'фио', 'имя', 'клиент'],
+    'check_in': ['check_in', 'check_in_date', 'checkin_date', 'checkin', 'arrival_date', 'arrival', 'заезд', 'дата_заезда', 'date_in', 'start_date'],
+    'check_out': ['check_out', 'check_out_date', 'checkout_date', 'checkout', 'departure_date', 'departure', 'выезд', 'дата_выезда', 'date_out', 'end_date'],
+    'price': ['price', 'total_price', 'total_amount', 'price_total', 'amount', 'total', 'cost', 'цена', 'сумма', 'стоимость'],
     'currency': ['currency', 'curr', 'valuta', 'валюта'],
     'email': ['email', 'mail', 'e-mail', 'почта'],
     'phone': ['phone', 'telephone', 'mobile', 'tel', 'телефон', 'номер_телефона'],
@@ -28,34 +30,62 @@ COLUMN_ALIASES = {
     'urls': ['urls', 'url', 'link', 'links', 'ссылка', 'ссылки']
 }
 
-def standardize_dataframe(df):
-    """Приводит DataFrame к единой структуре и восстанавливает отсутствующие данные."""
-    new_df = pd.DataFrame()
-    df_cols = {str(col).strip().lower(): col for col in df.columns}
-    used_cols = set()
+def robust_read_csv(file_path):
+    """Бронебойная функция чтения файла. Защищает от слипания колонок."""
+    # 1. Пробуем стандартное автоопределение
+    try:
+        df = pd.read_csv(file_path, sep=None, engine='python', dtype=str, on_bad_lines='skip')
+        if len(df.columns) > 1:
+            return df
+    except Exception:
+        pass
     
+    # 2. Если колонки слиплись, принудительно перебираем разделители
+    for sep in [';', ',', '\t', '|']:
+        try:
+            df = pd.read_csv(file_path, sep=sep, dtype=str, on_bad_lines='skip')
+            if len(df.columns) > 1:
+                return df
+        except Exception:
+            continue
+            
+    # 3. Крайний фолбэк
+    return pd.read_csv(file_path, sep=',', dtype=str, on_bad_lines='skip')
+
+
+def standardize_dataframe(df):
+    """Приводит DataFrame к единой структуре и восстанавливает данные."""
+    new_df = pd.DataFrame()
+    
+    # Нормализуем названия колонок (заменяем пробелы и тире на нижнее подчеркивание)
+    df_cols = {}
+    for col in df.columns:
+        norm_col = re.sub(r'[\s\.\-]+', '_', str(col).strip().lower())
+        df_cols[norm_col] = col
+        
+    used_cols = set()
     for target in TARGET_COLUMNS:
         matched_col = None
         aliases = COLUMN_ALIASES.get(target, [target])
         
-        # 1. Точное совпадение по алиасам
+        # Точное совпадение
         for alias in aliases:
             if alias in df_cols and df_cols[alias] not in used_cols:
                 matched_col = df_cols[alias]
                 break
                 
-        # 2. Поиск по частичному совпадению
+        # Умное совпадение (если точного нет, ищем только отдельные слова, а не обрывки)
         if not matched_col:
             for alias in aliases:
-                for col_lower, orig_col in df_cols.items():
+                for norm_col, orig_col in df_cols.items():
                     if orig_col in used_cols:
                         continue
-                    if alias in col_lower:
+                    if re.search(r'(^|_)' + re.escape(alias) + r'($|_)', norm_col):
                         matched_col = orig_col
                         break
                 if matched_col:
                     break
-                    
+
         if matched_col:
             new_df[target] = df[matched_col]
             used_cols.add(matched_col)
@@ -74,6 +104,29 @@ def standardize_dataframe(df):
     new_df.loc[mask_img, 'image'] = "https://i.ibb.co/C5dHd4fv/image.png"
 
     return new_df
+
+
+def save_excel_autofit(df, filename):
+    """Сохраняет XLSX и АВТОМАТИЧЕСКИ раздвигает колонки, чтобы текст не налегал друг на друга."""
+    writer = pd.ExcelWriter(filename, engine='openpyxl')
+    df.to_excel(writer, index=False, sheet_name='Data')
+    worksheet = writer.sheets['Data']
+    
+    for col in worksheet.columns:
+        max_length = 0
+        column = col[0].column_letter # Получаем букву колонки (A, B, C...)
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        
+        # Делаем ширину чуть больше текста (максимум 50, чтобы не было гигантских ячеек)
+        adjusted_width = min(max_length + 2, 50) 
+        worksheet.column_dimensions[column].width = adjusted_width
+        
+    writer.close()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -104,7 +157,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{doc.file_id}_{doc.file_name}"
     await file.download_to_drive(file_path)
     
-    msg = await update.message.reply_text("Обрабатываю файлы и настраиваю структуру...")
+    msg = await update.message.reply_text("Обрабатываю файлы (защита от слипания строк активирована)...")
 
     try:
         dfs = []
@@ -112,15 +165,16 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 for name in zip_ref.namelist():
                     if name.lower().endswith(('.csv', '.txt')) and not name.startswith('__MACOSX'):
-                        with zip_ref.open(name) as f:
-                            df = pd.read_csv(f, sep=None, engine='python', dtype=str, on_bad_lines='skip')
-                            dfs.append(df)
+                        zip_ref.extract(name, path=".")
+                        df = robust_read_csv(name)
+                        dfs.append(df)
+                        os.remove(name)
         elif file_name.endswith(('.csv', '.txt')):
-            df = pd.read_csv(file_path, sep=None, engine='python', dtype=str, on_bad_lines='skip')
+            df = robust_read_csv(file_path)
             dfs.append(df)
 
         if not dfs:
-            await msg.edit_text("Файлы CSV/TXT не найдены в сообщении.")
+            await msg.edit_text("Файлы CSV/TXT не найдены.")
             return
 
         combined_df = pd.concat(dfs, ignore_index=True)
@@ -135,9 +189,10 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chunk = standardized_df.iloc[start_idx:end_idx]
             current_chunk_rows = len(chunk)
             
-            # Название файла с указанием количества строк
             out_name = f"output_part_{part + 1}_{current_chunk_rows}rows.xlsx"
-            chunk.to_excel(out_name, index=False)
+            
+            # Сохраняем с умной авто-шириной колонок!
+            save_excel_autofit(chunk, out_name)
             
             with open(out_name, 'rb') as f:
                 await update.message.reply_document(
