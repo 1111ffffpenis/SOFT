@@ -6,61 +6,70 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Cal
 
 USER_SETTINGS = {}
 
-# Целевой формат колонок как в файле Bookings_unique_part_7.csv
+# Единый целевой формат колонок
 TARGET_COLUMNS = [
     'id', 'fio', 'check_in', 'check_out', 'price', 'currency', 
     'email', 'phone', 'hotel_name', 'address', 'image', 'urls'
 ]
 
-# Словари синонимов, чтобы бот сам понимал "другие форматы" 
+# Варианты названий колонок в различных выгрузках (включая Euro.csv)
 COLUMN_ALIASES = {
-    'id': ['id', 'booking_id', 'reservation', 'номер', 'reservation_id'],
-    'fio': ['fio', 'name', 'guest', 'имя', 'фио', 'клиент', 'guest_name', 'full_name'],
-    'check_in': ['check_in', 'checkin', 'заезд', 'arrival', 'date_in'],
-    'check_out': ['check_out', 'checkout', 'выезд', 'departure', 'date_out'],
-    'price': ['price', 'amount', 'цена', 'сумма', 'total'],
-    'currency': ['currency', 'валюта', 'curr'],
-    'email': ['email', 'почта', 'e-mail'],
-    'phone': ['phone', 'телефон', 'tel', 'mobile'],
-    'hotel_name': ['hotel_name', 'hotel', 'отель', 'гостиница'],
-    'address': ['address', 'адрес', 'location'],
-    'image': ['image', 'фото', 'picture'],
-    'urls': ['urls', 'url', 'ссылка', 'link']
+    'id': ['resv_id', 'booking_id', 'reservation_id', 'order_id', 'id', 'номер_брони', 'номер', 'src_id', 'room_id'],
+    'fio': ['guest_name', 'customer_name', 'fio', 'guest', 'name', 'full_name', 'фио', 'имя', 'клиент'],
+    'check_in': ['check_in_date', 'checkin_date', 'check_in', 'checkin', 'arrival_date', 'arrival', 'заезд', 'дата_заезда', 'date_in', 'start_date'],
+    'check_out': ['check_out_date', 'checkout_date', 'check_out', 'checkout', 'departure_date', 'departure', 'выезд', 'дата_выезда', 'date_out', 'end_date'],
+    'price': ['total_price', 'total_amount', 'price_total', 'price', 'amount', 'total', 'cost', 'цена', 'сумма', 'стоимость'],
+    'currency': ['currency', 'curr', 'valuta', 'валюта'],
+    'email': ['email', 'mail', 'e-mail', 'почта'],
+    'phone': ['phone', 'telephone', 'mobile', 'tel', 'телефон', 'номер_телефона'],
+    'hotel_name': ['hotel_name', 'hotel', 'property_name', 'property', 'отель', 'гостиница'],
+    'address': ['address', 'location', 'адрес'],
+    'image': ['image', 'img', 'photo', 'picture', 'фото'],
+    'urls': ['urls', 'url', 'link', 'links', 'ссылка', 'ссылки']
 }
 
 def standardize_dataframe(df):
-    """Подгоняет исходный DataFrame под единый стандартный вид."""
+    """Приводит DataFrame к единой структуре и восстанавливает отсутствующие данные."""
     new_df = pd.DataFrame()
-    
-    # Переводим названия исходных колонок в нижний регистр для сравнения
-    df_cols_lower = {str(col).strip().lower(): col for col in df.columns}
+    df_cols = {str(col).strip().lower(): col for col in df.columns}
+    used_cols = set()
     
     for target in TARGET_COLUMNS:
-        matched = False
-        # Ищем совпадения по синонимам
-        for alias in COLUMN_ALIASES.get(target, [target]):
-            if alias in df_cols_lower:
-                original_col_name = df_cols_lower[alias]
-                new_df[target] = df[original_col_name]
-                matched = True
-                break
+        matched_col = None
+        aliases = COLUMN_ALIASES.get(target, [target])
         
-        # Если колонка не нашлась в исходнике, создаем её пустой
-        if not matched:
+        # 1. Точное совпадение по алиасам
+        for alias in aliases:
+            if alias in df_cols and df_cols[alias] not in used_cols:
+                matched_col = df_cols[alias]
+                break
+                
+        # 2. Поиск по частичному совпадению
+        if not matched_col:
+            for alias in aliases:
+                for col_lower, orig_col in df_cols.items():
+                    if orig_col in used_cols:
+                        continue
+                    if alias in col_lower:
+                        matched_col = orig_col
+                        break
+                if matched_col:
+                    break
+                    
+        if matched_col:
+            new_df[target] = df[matched_col]
+            used_cols.add(matched_col)
+        else:
             new_df[target] = pd.NA
 
-    # --- Подстановка стандартных текстов из Bookings_unique_part_7.csv ---
-    
-    # 1. Генерируем hotel_name: "Hotel confirmation for reservation {id}" если он пуст
+    # Подстановка стандартных текстовых заполнителей
     mask_hotel = new_df['hotel_name'].isna() & new_df['id'].notna() & (new_df['id'] != '')
     clean_ids = new_df['id'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
     new_df.loc[mask_hotel, 'hotel_name'] = "Hotel confirmation for reservation " + clean_ids[mask_hotel]
 
-    # 2. Стандартный текст address
     mask_addr = new_df['address'].isna()
     new_df.loc[mask_addr, 'address'] = "You need to confirm your booking. This is required for verification purposes."
 
-    # 3. Стандартная картинка image
     mask_img = new_df['image'].isna()
     new_df.loc[mask_img, 'image'] = "https://i.ibb.co/C5dHd4fv/image.png"
 
@@ -74,8 +83,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "Выберите количество строк в одном .xlsx файле.\n"
-        "Бот автоматически подгонит колонки под нужный формат и пропустит битые строки.", 
+        "Выберите желаемый лимит строк на один .xlsx файл:", 
         reply_markup=reply_markup
     )
 
@@ -84,7 +92,7 @@ async def set_rows(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     chunk_size = int(query.data.split('_')[1])
     USER_SETTINGS[query.from_user.id] = chunk_size
-    await query.edit_message_text(f"Лимит установлен: {chunk_size} строк. Присылайте CSV, TXT или ZIP файл.")
+    await query.edit_message_text(f"Лимит строк установлен: {chunk_size}. Присылайте CSV, TXT или ZIP файл.")
 
 async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -96,7 +104,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{doc.file_id}_{doc.file_name}"
     await file.download_to_drive(file_path)
     
-    msg = await update.message.reply_text("Обрабатываю данные и подгоняю формат колонок...")
+    msg = await update.message.reply_text("Обрабатываю файлы и настраиваю структуру...")
 
     try:
         dfs = []
@@ -105,7 +113,6 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for name in zip_ref.namelist():
                     if name.lower().endswith(('.csv', '.txt')) and not name.startswith('__MACOSX'):
                         with zip_ref.open(name) as f:
-                            # on_bad_lines='skip' игнорирует битые строки!
                             df = pd.read_csv(f, sep=None, engine='python', dtype=str, on_bad_lines='skip')
                             dfs.append(df)
         elif file_name.endswith(('.csv', '.txt')):
@@ -113,13 +120,10 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dfs.append(df)
 
         if not dfs:
-            await msg.edit_text("Подходящие CSV/TXT файлы не найдены.")
+            await msg.edit_text("Файлы CSV/TXT не найдены в сообщении.")
             return
 
-        # Склеиваем всё в один DataFrame
         combined_df = pd.concat(dfs, ignore_index=True)
-        
-        # Запускаем нашу умную подгонку
         standardized_df = standardize_dataframe(combined_df)
 
         total_rows = len(standardized_df)
@@ -129,16 +133,21 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             start_idx = part * chunk_size
             end_idx = start_idx + chunk_size
             chunk = standardized_df.iloc[start_idx:end_idx]
+            current_chunk_rows = len(chunk)
             
-            out_name = f"output_part_{part + 1}.xlsx"
-            # Сохраняем в XLSX без технического индекса
+            # Название файла с указанием количества строк
+            out_name = f"output_part_{part + 1}_{current_chunk_rows}rows.xlsx"
             chunk.to_excel(out_name, index=False)
             
             with open(out_name, 'rb') as f:
-                await update.message.reply_document(document=f, filename=out_name)
+                await update.message.reply_document(
+                    document=f, 
+                    filename=out_name,
+                    caption=f"📄 Файл {part + 1} из {parts_count}\nКоличество строк: {current_chunk_rows}"
+                )
             os.remove(out_name)
 
-        await msg.edit_text(f"Готово! Обработано строк: {total_rows}. Выгружено строго по шаблону.")
+        await msg.edit_text(f"Готово!\nВсего обработано строк: {total_rows}\nСформировано файлов: {parts_count}")
 
     except Exception as e:
         await msg.edit_text(f"Ошибка при обработке: {str(e)}")
