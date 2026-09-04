@@ -1,7 +1,6 @@
 import os
 import zipfile
 import re
-import csv
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -34,11 +33,40 @@ COLUMN_ALIASES = {
     'urls': ['urls', 'url', 'link', 'links', 'ссылка', 'ссылки']
 }
 
-# --- ГЛОБАЛЬНЫЙ СЛОВАРЬ ВСЕХ ВАЛЮТ МИРА ---
+# --- МАКСИМАЛЬНЫЙ СЛОВАРЬ ВСЕХ ВАЛЮТ ---
 CURRENCY_MAP = {
-    # Европа
     'euro': 'EUR', 'eur': 'EUR', '€': 'EUR', 'euros': 'EUR',
-    'rub': 'RUB', 'ruble': 'RUB', 'руб': 'RUB', 'рубль': 'RUB',
+    'usd': 'USD', 'dollar': 'USD', '$': 'USD', 'us dollar': 'USD', 'dollars': 'USD',
+    
+    # Ближний Восток
+    'aed': 'AED', 'dirham': 'AED', 'uae dirham': 'AED',
+    'kwd': 'KWD', 'kuwaiti dinar': 'KWD', 'kuwaiti': 'KWD', 'dinar': 'KWD',
+    'sar': 'SAR', 'riyal': 'SAR', 'saudi riyal': 'SAR',
+    'qar': 'QAR', 'qatari riyal': 'QAR',
+    'omr': 'OMR', 'omani rial': 'OMR', 'omani': 'OMR',
+    'bhd': 'BHD', 'bahraini dinar': 'BHD',
+    'ils': 'ILS', 'shekel': 'ILS', 'israeli new shekel': 'ILS',
+    'jod': 'JOD', 'jordanian dinar': 'JOD',
+    'lbp': 'LBP', 'lebanese pound': 'LBP',
+    'try': 'TRY', 'lira': 'TRY', 'turkish lira': 'TRY',
+
+    # Азия
+    'inr': 'INR', 'indian rupee': 'INR', 'rupees': 'INR', 'indrian rupies': 'INR', 'rupee': 'INR', 'india rupee': 'INR',
+    'thb': 'THB', 'baht': 'THB', 'thai baht': 'THB',
+    'cny': 'CNY', 'yuan': 'CNY', 'renminbi': 'CNY', 'rmb': 'CNY',
+    'jpy': 'JPY', 'yen': 'JPY', '¥': 'JPY',
+    'krw': 'KRW', 'won': 'KRW', 'korean won': 'KRW',
+    'idr': 'IDR', 'rupiah': 'IDR', 'indonesian rupiah': 'IDR',
+    'myr': 'MYR', 'ringgit': 'MYR', 'malaysian ringgit': 'MYR',
+    'sgd': 'SGD', 'singapore dollar': 'SGD',
+    'php': 'PHP', 'peso': 'PHP', 'philippine peso': 'PHP',
+    'vnd': 'VND', 'dong': 'VND', 'vietnamese dong': 'VND',
+    'twd': 'TWD', 'new taiwan dollar': 'TWD',
+    'hkd': 'HKD', 'hong kong dollar': 'HKD',
+    'pkr': 'PKR', 'pakistani rupee': 'PKR',
+
+    # Европа 
+    'rub': 'RUB', 'ruble': 'RUB', 'руб': 'RUB', 'рубль': 'RUB', 'рублей': 'RUB',
     'gbp': 'GBP', 'pound': 'GBP', '£': 'GBP', 'pounds': 'GBP',
     'chf': 'CHF', 'swiss franc': 'CHF',
     'pln': 'PLN', 'zloty': 'PLN', 'polish zloty': 'PLN',
@@ -49,10 +77,8 @@ CURRENCY_MAP = {
     'sek': 'SEK', 'swedish krona': 'SEK',
     'nok': 'NOK', 'norwegian krone': 'NOK',
     'dkk': 'DKK', 'danish krone': 'DKK',
-    'rsd': 'RSD', 'serbian dinar': 'RSD',
 
     # Америка
-    'usd': 'USD', 'dollar': 'USD', '$': 'USD', 'us dollar': 'USD', 'dollars': 'USD',
     'cad': 'CAD', 'canadian dollar': 'CAD',
     'mxn': 'MXN', 'mexican peso': 'MXN',
     'brl': 'BRL', 'real': 'BRL', 'brazilian real': 'BRL',
@@ -60,37 +86,8 @@ CURRENCY_MAP = {
     'cop': 'COP', 'colombian peso': 'COP', 'columbian': 'COP', 'columbian peso': 'COP',
     'clp': 'CLP', 'chilean peso': 'CLP',
     'pen': 'PEN', 'sol': 'PEN',
-    'crc': 'CRC', 'colón': 'CRC',
 
-    # Азия
-    'cny': 'CNY', 'yuan': 'CNY', 'renminbi': 'CNY', 'rmb': 'CNY',
-    'jpy': 'JPY', 'yen': 'JPY', '¥': 'JPY',
-    'krw': 'KRW', 'won': 'KRW', 'korean won': 'KRW',
-    'inr': 'INR', 'indian rupee': 'INR', 'rupees': 'INR', 'indrian rupies': 'INR', 'rupee': 'INR',
-    'idr': 'IDR', 'rupiah': 'IDR', 'indonesian rupiah': 'IDR',
-    'myr': 'MYR', 'ringgit': 'MYR', 'malaysian ringgit': 'MYR',
-    'sgd': 'SGD', 'singapore dollar': 'SGD',
-    'php': 'PHP', 'peso': 'PHP', 'philippine peso': 'PHP',
-    'thb': 'THB', 'baht': 'THB', 'thai baht': 'THB',
-    'vnd': 'VND', 'dong': 'VND', 'vietnamese dong': 'VND',
-    'twd': 'TWD', 'new taiwan dollar': 'TWD',
-    'hkd': 'HKD', 'hong kong dollar': 'HKD',
-    'pkr': 'PKR', 'pakistani rupee': 'PKR',
-    'bdt': 'BDT', 'taka': 'BDT',
-
-    # Ближний Восток
-    'aed': 'AED', 'dirham': 'AED', 'uae dirham': 'AED',
-    'kwd': 'KWD', 'kuwaiti dinar': 'KWD', 'kuwaiti': 'KWD', 'dinar': 'KWD',
-    'sar': 'SAR', 'riyal': 'SAR', 'saudi riyal': 'SAR',
-    'qar': 'QAR', 'qatari riyal': 'QAR',
-    'omr': 'OMR', 'omani rial': 'OMR',
-    'bhd': 'BHD', 'bahraini dinar': 'BHD',
-    'ils': 'ILS', 'shekel': 'ILS', 'israeli new shekel': 'ILS',
-    'jod': 'JOD', 'jordanian dinar': 'JOD',
-    'lbp': 'LBP', 'lebanese pound': 'LBP',
-    'try': 'TRY', 'lira': 'TRY', 'turkish lira': 'TRY',
-
-    # Африка и Океания
+    # Океания и Африка
     'aud': 'AUD', 'australian dollar': 'AUD',
     'nzd': 'NZD', 'new zealand dollar': 'NZD',
     'zar': 'ZAR', 'rand': 'ZAR', 'south african rand': 'ZAR',
@@ -105,13 +102,7 @@ CURRENCY_MAP = {
     'uah': 'UAH', 'hryvnia': 'UAH', 'гривна': 'UAH',
     'uzs': 'UZS', 'som': 'UZS', 'сум': 'UZS',
     'gel': 'GEL', 'lari': 'GEL', 'лари': 'GEL',
-    'amd': 'AMD', 'dram': 'AMD', 'драм': 'AMD',
-    'azn': 'AZN', 'manat': 'AZN',
-
-    # Крипта
-    'btc': 'BTC', 'bitcoin': 'BTC',
-    'eth': 'ETH', 'ethereum': 'ETH',
-    'usdt': 'USDT', 'tether': 'USDT'
+    'amd': 'AMD', 'dram': 'AMD', 'драм': 'AMD'
 }
 
 def normalize_currency(val):
@@ -120,69 +111,73 @@ def normalize_currency(val):
     
     val_lower = val.strip().lower()
     
-    # 1. Прямое совпадение
     if val_lower in CURRENCY_MAP:
         return CURRENCY_MAP[val_lower]
         
-    # 2. Поиск по подстроке (например, "kuwaiti dinar 200")
     for key, code in CURRENCY_MAP.items():
         if key in val_lower:
             return code
             
-    # 3. Если 3 буквы — делаем капсом
     if len(val_lower) == 3:
         return val_lower.upper()
         
     return val.title()
 
-
 def robust_read_csv(file_path):
-    """
-    Бронебойное чтение с авто-починкой СМЕЩЕННЫХ строк.
-    """
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        first_line = f.readline()
-        
-    sep = ','
-    if ';' in first_line: sep = ';'
-    elif '\t' in first_line: sep = '\t'
-    elif '|' in first_line: sep = '|'
+    try:
+        df = pd.read_csv(file_path, sep=None, engine='python', dtype=str, on_bad_lines='skip')
+        if len(df.columns) > 1: return df
+    except Exception: pass
     
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        reader = csv.reader(f, delimiter=sep)
-        rows = list(reader)
-        
-    if not rows:
-        return pd.DataFrame()
-        
-    header = [str(x).strip() for x in rows[0]]
-    expected_len = len(header)
-    
-    fixed_rows = []
-    for row in rows[1:]:
-        if not any(row): continue
-        
-        # ЕСЛИ СТОЛБЦЫ СМЕСТИЛИСЬ ИЗ-ЗА ЛИШНЕЙ ЗАПЯТОЙ
-        if len(row) > expected_len:
-            diff = len(row) - expected_len
-            # Склеиваем лишние данные в одной ячейке (обычно во 2-й колонке FIO), 
-            # чтобы остальные важные данные встали на свои законные места.
-            left_part = row[:1]
-            middle_part = [" ".join(row[1:1+diff+1])]
-            right_part = row[1+diff+1:]
-            fixed_row = left_part + middle_part + right_part
-            fixed_rows.append(fixed_row)
+    for sep in [';', ',', '\t', '|']:
+        try:
+            df = pd.read_csv(file_path, sep=sep, dtype=str, on_bad_lines='skip')
+            if len(df.columns) > 1: return df
+        except Exception: continue
             
-        # ЕСЛИ КОЛОНОК НЕ ХВАТАЕТ
-        elif len(row) < expected_len:
-            row.extend([''] * (expected_len - len(row)))
-            fixed_rows.append(row)
-            
-        else:
-            fixed_rows.append(row)
-            
-    return pd.DataFrame(fixed_rows, columns=header)
+    return pd.read_csv(file_path, sep=',', dtype=str, on_bad_lines='skip')
 
+def fix_shifted_rows(df):
+    """
+    УМНЫЙ АЛГОРИТМ ВЫРАВНИВАНИЯ СЪЕХАВШИХ СТРОК.
+    Ищет даты и ставит колонки на правильные места, спасая сломанные CSV.
+    """
+    date_pattern = r'\d{2,4}[-/\.]\d{2}[-/\.]\d{2,4}'
+    
+    for idx, row in df.iterrows():
+        fio = str(row.get('fio', '')).strip()
+        chk_in = str(row.get('check_in', '')).strip()
+        chk_out = str(row.get('check_out', '')).strip()
+        price = str(row.get('price', '')).strip()
+        
+        is_fio_date = bool(re.search(date_pattern, fio))
+        is_chk_in_date = bool(re.search(date_pattern, chk_in))
+        is_chk_out_date = bool(re.search(date_pattern, chk_out))
+        is_price_date = bool(re.search(date_pattern, price))
+        
+        # Сдвиг ВЛЕВО (например, пропал ID, как у Pranava Handa)
+        # Если в колонке 'fio' дата, и в 'check_in' дата - значит всё съехало влево!
+        if is_fio_date and is_chk_in_date and not is_chk_out_date:
+            df.at[idx, 'phone'] = row.get('email')
+            df.at[idx, 'email'] = row.get('currency')
+            df.at[idx, 'currency'] = row.get('price')
+            df.at[idx, 'price'] = row.get('check_out')
+            df.at[idx, 'check_out'] = row.get('check_in')
+            df.at[idx, 'check_in'] = row.get('fio')
+            df.at[idx, 'fio'] = row.get('id')
+            df.at[idx, 'id'] = pd.NA
+            
+        # Сдвиг ВПРАВО (например, в имени была лишняя запятая, и оно разбилось на две ячейки)
+        elif is_chk_out_date and is_price_date and not is_chk_in_date:
+            df.at[idx, 'fio'] = str(row.get('fio', '')) + " " + str(row.get('check_in', ''))
+            df.at[idx, 'check_in'] = row.get('check_out')
+            df.at[idx, 'check_out'] = row.get('price')
+            df.at[idx, 'price'] = row.get('currency')
+            df.at[idx, 'currency'] = row.get('email')
+            df.at[idx, 'email'] = row.get('phone')
+            df.at[idx, 'phone'] = pd.NA
+            
+    return df
 
 def standardize_dataframe(df):
     new_df = pd.DataFrame()
@@ -204,13 +199,11 @@ def standardize_dataframe(df):
         if not matched_col:
             for alias in aliases:
                 for norm_col, orig_col in df_cols.items():
-                    if orig_col in used_cols:
-                        continue
+                    if orig_col in used_cols: continue
                     if re.search(r'(^|_)' + re.escape(alias) + r'($|_)', norm_col):
                         matched_col = orig_col
                         break
-                if matched_col:
-                    break
+                if matched_col: break
 
         if matched_col:
             new_df[target] = df[matched_col]
@@ -218,11 +211,14 @@ def standardize_dataframe(df):
         else:
             new_df[target] = pd.NA
 
-    # Форматирование валюты
+    # 1. ЧИНИМ СМЕЩЕНИЯ (ставим валюты и даты на свои места!)
+    new_df = fix_shifted_rows(new_df)
+
+    # 2. ТЕПЕРЬ КОНВЕРТИРУЕМ ВАЛЮТУ (когда она точно в колонке currency)
     if 'currency' in new_df.columns:
         new_df['currency'] = new_df['currency'].apply(normalize_currency)
 
-    # Дефолтные значения (отель, адрес, картинка)
+    # 3. ДОБАВЛЯЕМ ШАБЛОНЫ ОТЕЛЬ/КАРТИНКА
     mask_hotel = new_df['hotel_name'].isna() & new_df['id'].notna() & (new_df['id'] != '')
     clean_ids = new_df['id'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
     new_df.loc[mask_hotel, 'hotel_name'] = "Hotel confirmation for reservation " + clean_ids[mask_hotel]
@@ -236,7 +232,6 @@ def standardize_dataframe(df):
     return new_df
 
 def save_excel_perfect(df, filename):
-    """Сохранение XLSX с выделенной шапкой и широкими колонками (защита от наложения)."""
     writer = pd.ExcelWriter(filename, engine='openpyxl')
     df.to_excel(writer, index=False, sheet_name='Data')
     worksheet = writer.sheets['Data']
@@ -258,10 +253,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("3000", callback_data="rows_3000"), InlineKeyboardButton("5000", callback_data="rows_5000")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "Выберите желаемый лимит строк на один .xlsx файл:", 
-        reply_markup=reply_markup
-    )
+    await update.message.reply_text("Выберите желаемый лимит строк на один .xlsx файл:", reply_markup=reply_markup)
 
 async def set_rows(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -312,7 +304,6 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chunk = standardized_df.iloc[start_idx:end_idx]
             current_chunk_rows = len(chunk)
             
-            # Сохранение с указанием количества строк
             out_name = f"output_part_{part + 1}_{current_chunk_rows}rows.xlsx"
             save_excel_perfect(chunk, out_name)
             
@@ -334,12 +325,9 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == '__main__':
     bot_token = os.getenv("BOT_TOKEN")
-    if not bot_token:
-        raise ValueError("BOT_TOKEN variable is not set!")
-        
+    if not bot_token: raise ValueError("BOT_TOKEN variable is not set!")
     app = ApplicationBuilder().token(bot_token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(set_rows, pattern="^rows_"))
     app.add_handler(MessageHandler(filters.Document.ALL, process_file))
-    
     app.run_polling()
