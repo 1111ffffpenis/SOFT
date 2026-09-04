@@ -33,17 +33,29 @@ COLUMN_ALIASES = {
     'urls': ['urls', 'url', 'link', 'links', 'ссылка', 'ссылки']
 }
 
-# --- МАКСИМАЛЬНЫЙ СЛОВАРЬ ВСЕХ ВАЛЮТ ---
+# --- МАКСИМАЛЬНЫЙ СЛОВАРЬ ВСЕХ ВАЛЮТ (С УЧЕТОМ ОПЕЧАТОК) ---
 CURRENCY_MAP = {
+    # Европа
     'euro': 'EUR', 'eur': 'EUR', '€': 'EUR', 'euros': 'EUR',
-    'usd': 'USD', 'dollar': 'USD', '$': 'USD', 'us dollar': 'USD', 'dollars': 'USD',
-    
+    'chf': 'CHF', 'swiss franc': 'CHF', 'switzerland franc': 'CHF',
+    'rub': 'RUB', 'ruble': 'RUB', 'руб': 'RUB', 'рубль': 'RUB', 'рублей': 'RUB',
+    'gbp': 'GBP', 'pound': 'GBP', '£': 'GBP', 'pounds': 'GBP',
+    'pln': 'PLN', 'zloty': 'PLN', 'polish zloty': 'PLN',
+    'czk': 'CZK', 'koruna': 'CZK', 'czech koruna': 'CZK',
+    'huf': 'HUF', 'forint': 'HUF',
+    'ron': 'RON', 'leu': 'RON',
+    'bgn': 'BGN', 'lev': 'BGN',
+    'sek': 'SEK', 'swedish krona': 'SEK',
+    'nok': 'NOK', 'norwegian krone': 'NOK',
+    'dkk': 'DKK', 'danish krone': 'DKK',
+    'rsd': 'RSD', 'serbian dinar': 'RSD',
+
     # Ближний Восток
     'aed': 'AED', 'dirham': 'AED', 'uae dirham': 'AED',
     'kwd': 'KWD', 'kuwaiti dinar': 'KWD', 'kuwaiti': 'KWD', 'dinar': 'KWD',
+    'omr': 'OMR', 'omani rial': 'OMR', 'omar rials': 'OMR', 'omar rial': 'OMR', 'omani rials': 'OMR', 'omani': 'OMR',
     'sar': 'SAR', 'riyal': 'SAR', 'saudi riyal': 'SAR',
     'qar': 'QAR', 'qatari riyal': 'QAR',
-    'omr': 'OMR', 'omani rial': 'OMR', 'omani': 'OMR',
     'bhd': 'BHD', 'bahraini dinar': 'BHD',
     'ils': 'ILS', 'shekel': 'ILS', 'israeli new shekel': 'ILS',
     'jod': 'JOD', 'jordanian dinar': 'JOD',
@@ -64,21 +76,10 @@ CURRENCY_MAP = {
     'twd': 'TWD', 'new taiwan dollar': 'TWD',
     'hkd': 'HKD', 'hong kong dollar': 'HKD',
     'pkr': 'PKR', 'pakistani rupee': 'PKR',
-
-    # Европа 
-    'rub': 'RUB', 'ruble': 'RUB', 'руб': 'RUB', 'рубль': 'RUB', 'рублей': 'RUB',
-    'gbp': 'GBP', 'pound': 'GBP', '£': 'GBP', 'pounds': 'GBP',
-    'chf': 'CHF', 'swiss franc': 'CHF',
-    'pln': 'PLN', 'zloty': 'PLN', 'polish zloty': 'PLN',
-    'czk': 'CZK', 'koruna': 'CZK', 'czech koruna': 'CZK',
-    'huf': 'HUF', 'forint': 'HUF',
-    'ron': 'RON', 'leu': 'RON',
-    'bgn': 'BGN', 'lev': 'BGN',
-    'sek': 'SEK', 'swedish krona': 'SEK',
-    'nok': 'NOK', 'norwegian krone': 'NOK',
-    'dkk': 'DKK', 'danish krone': 'DKK',
+    'bdt': 'BDT', 'taka': 'BDT',
 
     # Америка
+    'usd': 'USD', 'dollar': 'USD', '$': 'USD', 'us dollar': 'USD', 'dollars': 'USD',
     'cad': 'CAD', 'canadian dollar': 'CAD',
     'mxn': 'MXN', 'mexican peso': 'MXN',
     'brl': 'BRL', 'real': 'BRL', 'brazilian real': 'BRL',
@@ -86,6 +87,7 @@ CURRENCY_MAP = {
     'cop': 'COP', 'colombian peso': 'COP', 'columbian': 'COP', 'columbian peso': 'COP',
     'clp': 'CLP', 'chilean peso': 'CLP',
     'pen': 'PEN', 'sol': 'PEN',
+    'crc': 'CRC', 'colón': 'CRC',
 
     # Океания и Африка
     'aud': 'AUD', 'australian dollar': 'AUD',
@@ -102,22 +104,31 @@ CURRENCY_MAP = {
     'uah': 'UAH', 'hryvnia': 'UAH', 'гривна': 'UAH',
     'uzs': 'UZS', 'som': 'UZS', 'сум': 'UZS',
     'gel': 'GEL', 'lari': 'GEL', 'лари': 'GEL',
-    'amd': 'AMD', 'dram': 'AMD', 'драм': 'AMD'
+    'amd': 'AMD', 'dram': 'AMD', 'драм': 'AMD',
+    'azn': 'AZN', 'manat': 'AZN',
+
+    # Крипта
+    'btc': 'BTC', 'bitcoin': 'BTC',
+    'eth': 'ETH', 'ethereum': 'ETH',
+    'usdt': 'USDT', 'tether': 'USDT'
 }
 
 def normalize_currency(val):
-    if pd.isna(val) or not isinstance(val, str):
+    if pd.isna(val) or not isinstance(val, str) or not val.strip():
         return val
     
     val_lower = val.strip().lower()
     
+    # Прямое совпадение
     if val_lower in CURRENCY_MAP:
         return CURRENCY_MAP[val_lower]
         
+    # Поиск по подстроке
     for key, code in CURRENCY_MAP.items():
         if key in val_lower:
             return code
             
+    # Если 3 буквы — делаем капсом (напр. bgn -> BGN)
     if len(val_lower) == 3:
         return val_lower.upper()
         
@@ -137,47 +148,41 @@ def robust_read_csv(file_path):
             
     return pd.read_csv(file_path, sep=',', dtype=str, on_bad_lines='skip')
 
-def fix_shifted_rows(df):
-    """
-    УМНЫЙ АЛГОРИТМ ВЫРАВНИВАНИЯ СЪЕХАВШИХ СТРОК.
-    Ищет даты и ставит колонки на правильные места, спасая сломанные CSV.
-    """
-    date_pattern = r'\d{2,4}[-/\.]\d{2}[-/\.]\d{2,4}'
+def advanced_fix_rows(df):
+    # ЯКОРНЫЙ АЛГОРИТМ: Ищет дату и выравнивает столбцы относительно нее
+    date_pat = re.compile(r'\d{2,4}[-/\.]\d{2}[-/\.]\d{2,4}')
+    fixed_rows = []
     
     for idx, row in df.iterrows():
-        fio = str(row.get('fio', '')).strip()
-        chk_in = str(row.get('check_in', '')).strip()
-        chk_out = str(row.get('check_out', '')).strip()
-        price = str(row.get('price', '')).strip()
+        # Очищаем ячейки
+        vals = [str(x).strip() if pd.notna(x) and str(x).strip() not in ('nan', 'None') else '' for x in row]
         
-        is_fio_date = bool(re.search(date_pattern, fio))
-        is_chk_in_date = bool(re.search(date_pattern, chk_in))
-        is_chk_out_date = bool(re.search(date_pattern, chk_out))
-        is_price_date = bool(re.search(date_pattern, price))
+        # Находим индексы всех ячеек, похожих на дату
+        date_indices = [i for i, v in enumerate(vals) if date_pat.search(v)]
         
-        # Сдвиг ВЛЕВО (например, пропал ID, как у Pranava Handa)
-        # Если в колонке 'fio' дата, и в 'check_in' дата - значит всё съехало влево!
-        if is_fio_date and is_chk_in_date and not is_chk_out_date:
-            df.at[idx, 'phone'] = row.get('email')
-            df.at[idx, 'email'] = row.get('currency')
-            df.at[idx, 'currency'] = row.get('price')
-            df.at[idx, 'price'] = row.get('check_out')
-            df.at[idx, 'check_out'] = row.get('check_in')
-            df.at[idx, 'check_in'] = row.get('fio')
-            df.at[idx, 'fio'] = row.get('id')
-            df.at[idx, 'id'] = pd.NA
+        if len(date_indices) >= 1:
+            # Считаем, что первая найденная дата должна быть в колонке 'check_in' (индекс 2)
+            first_date_idx = date_indices[0]
+            shift = first_date_idx - 2 
             
-        # Сдвиг ВПРАВО (например, в имени была лишняя запятая, и оно разбилось на две ячейки)
-        elif is_chk_out_date and is_price_date and not is_chk_in_date:
-            df.at[idx, 'fio'] = str(row.get('fio', '')) + " " + str(row.get('check_in', ''))
-            df.at[idx, 'check_in'] = row.get('check_out')
-            df.at[idx, 'check_out'] = row.get('price')
-            df.at[idx, 'price'] = row.get('currency')
-            df.at[idx, 'currency'] = row.get('email')
-            df.at[idx, 'email'] = row.get('phone')
-            df.at[idx, 'phone'] = pd.NA
-            
-    return df
+            if shift < 0:
+                # СДВИГ ВЛЕВО (например, пропал ID, как на скрине)
+                # Добавляем пустые ячейки в начало, чтобы сдвинуть всё вправо
+                vals = [''] * abs(shift) + vals
+                vals = vals[:12] # Обрезаем хвост до стандарта
+                
+            elif shift > 0:
+                # СДВИГ ВПРАВО (например, ФИО разбилось на 2 ячейки из-за запятой)
+                # Склеиваем "Имя" и "Фамилию" обратно в одну ячейку
+                if 1+shift < len(vals):
+                    merged_fio = " ".join([v for v in vals[1:1+shift+1] if v])
+                    vals = [vals[0], merged_fio] + vals[1+shift+1:]
+                    vals = vals + [''] * (12 - len(vals))
+                    vals = vals[:12]
+                    
+        fixed_rows.append(vals)
+        
+    return pd.DataFrame(fixed_rows, columns=TARGET_COLUMNS)
 
 def standardize_dataframe(df):
     new_df = pd.DataFrame()
@@ -211,22 +216,25 @@ def standardize_dataframe(df):
         else:
             new_df[target] = pd.NA
 
-    # 1. ЧИНИМ СМЕЩЕНИЯ (ставим валюты и даты на свои места!)
-    new_df = fix_shifted_rows(new_df)
+    # 1. ЧИНИМ ВСЕ СМЕЩЕНИЯ (ставим валюты на место!)
+    new_df = advanced_fix_rows(new_df)
 
-    # 2. ТЕПЕРЬ КОНВЕРТИРУЕМ ВАЛЮТУ (когда она точно в колонке currency)
+    # 2. КОНВЕРТИРУЕМ ВАЛЮТУ 
     if 'currency' in new_df.columns:
         new_df['currency'] = new_df['currency'].apply(normalize_currency)
 
-    # 3. ДОБАВЛЯЕМ ШАБЛОНЫ ОТЕЛЬ/КАРТИНКА
-    mask_hotel = new_df['hotel_name'].isna() & new_df['id'].notna() & (new_df['id'] != '')
+    # 3. ДОБАВЛЯЕМ ШАБЛОНЫ
+    mask_hotel = new_df['hotel_name'].eq('') | new_df['hotel_name'].isna()
+    mask_id_valid = new_df['id'].notna() & (new_df['id'] != '')
+    valid_hotel_mask = mask_hotel & mask_id_valid
+    
     clean_ids = new_df['id'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
-    new_df.loc[mask_hotel, 'hotel_name'] = "Hotel confirmation for reservation " + clean_ids[mask_hotel]
+    new_df.loc[valid_hotel_mask, 'hotel_name'] = "Hotel confirmation for reservation " + clean_ids[valid_hotel_mask]
 
-    mask_addr = new_df['address'].isna()
+    mask_addr = new_df['address'].eq('') | new_df['address'].isna()
     new_df.loc[mask_addr, 'address'] = "You need to confirm your booking. This is required for verification purposes."
 
-    mask_img = new_df['image'].isna()
+    mask_img = new_df['image'].eq('') | new_df['image'].isna()
     new_df.loc[mask_img, 'image'] = "https://i.ibb.co/C5dHd4fv/image.png"
 
     return new_df
@@ -272,7 +280,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{doc.file_id}_{doc.file_name}"
     await file.download_to_drive(file_path)
     
-    msg = await update.message.reply_text("Обрабатываю файлы (чиню сдвиги колонок и конвертирую валюты)...")
+    msg = await update.message.reply_text("Восстанавливаю сдвиги строк и конвертирую валюты...")
 
     try:
         dfs = []
