@@ -1,6 +1,7 @@
 import os
 import zipfile
 import re
+import csv
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -8,19 +9,16 @@ from openpyxl.styles import Font, PatternFill
 
 USER_SETTINGS = {}
 
-# --- ЦЕЛЕВЫЕ КОЛОНКИ ---
 TARGET_COLUMNS = [
     'id', 'fio', 'check_in', 'check_out', 'price', 'currency', 
     'email', 'phone', 'hotel_name', 'address', 'image', 'urls'
 ]
 
-# --- ШИРИНА КОЛОНОК (ЗАЩИТА ОТ НАЛОЖЕНИЯ ТЕКСТА) ---
 COLUMN_WIDTHS = {
     'A': 18, 'B': 28, 'C': 14, 'D': 14, 'E': 14, 'F': 14, 
     'G': 32, 'H': 18, 'I': 35, 'J': 45, 'K': 35, 'L': 25
 }
 
-# --- УМНЫЕ СИНОНИМЫ КОЛОНОК ---
 COLUMN_ALIASES = {
     'id': ['id', 'resv_id', 'booking_id', 'reservation_id', 'reservation', 'order_id', 'номер_брони', 'номер', 'src_id', 'room_id'],
     'fio': ['fio', 'guest_name', 'customer_name', 'guest', 'name', 'full_name', 'фио', 'имя', 'клиент'],
@@ -36,54 +34,81 @@ COLUMN_ALIASES = {
     'urls': ['urls', 'url', 'link', 'links', 'ссылка', 'ссылки']
 }
 
-# --- МАКСИМАЛЬНЫЙ СЛОВАРЬ ВАЛЮТ ---
+# --- ГЛОБАЛЬНЫЙ СЛОВАРЬ ВСЕХ ВАЛЮТ МИРА ---
 CURRENCY_MAP = {
-    # Базовые
+    # Европа
     'euro': 'EUR', 'eur': 'EUR', '€': 'EUR', 'euros': 'EUR',
-    'usd': 'USD', 'dollar': 'USD', '$': 'USD', 'us dollar': 'USD', 'dollars': 'USD',
-    # Азия и Ближний Восток
-    'inr': 'INR', 'indian rupee': 'INR', 'rupees': 'INR', 'indrian rupies': 'INR', 'rupee': 'INR',
-    'aed': 'AED', 'dirham': 'AED', 'uae dirham': 'AED',
-    'thb': 'THB', 'baht': 'THB', 'thai baht': 'THB',
-    'cny': 'CNY', 'yuan': 'CNY', 'renminbi': 'CNY', 'rmb': 'CNY',
-    'jpy': 'JPY', 'yen': 'JPY', '¥': 'JPY',
-    'krw': 'KRW', 'won': 'KRW', 'korean won': 'KRW',
-    'idr': 'IDR', 'rupiah': 'IDR', 'indonesian rupiah': 'IDR',
-    'myr': 'MYR', 'ringgit': 'MYR', 'malaysian ringgit': 'MYR',
-    'sgd': 'SGD', 'singapore dollar': 'SGD',
-    'php': 'PHP', 'peso': 'PHP', 'philippine peso': 'PHP',
-    'vnd': 'VND', 'dong': 'VND', 'vietnamese dong': 'VND',
-    # Европа (вне еврозоны)
-    'rub': 'RUB', 'ruble': 'RUB', 'руб': 'RUB', 'рубль': 'RUB', 'рублей': 'RUB',
+    'rub': 'RUB', 'ruble': 'RUB', 'руб': 'RUB', 'рубль': 'RUB',
     'gbp': 'GBP', 'pound': 'GBP', '£': 'GBP', 'pounds': 'GBP',
     'chf': 'CHF', 'swiss franc': 'CHF',
     'pln': 'PLN', 'zloty': 'PLN', 'polish zloty': 'PLN',
     'czk': 'CZK', 'koruna': 'CZK', 'czech koruna': 'CZK',
-    'huf': 'HUF', 'forint': 'HUF', 'hungarian forint': 'HUF',
-    'ron': 'RON', 'leu': 'RON', 'romanian leu': 'RON',
-    'bgn': 'BGN', 'lev': 'BGN', 'bulgarian lev': 'BGN',
-    'try': 'TRY', 'lira': 'TRY', 'turkish lira': 'TRY', 'tl': 'TRY',
+    'huf': 'HUF', 'forint': 'HUF',
+    'ron': 'RON', 'leu': 'RON',
+    'bgn': 'BGN', 'lev': 'BGN',
+    'sek': 'SEK', 'swedish krona': 'SEK',
+    'nok': 'NOK', 'norwegian krone': 'NOK',
+    'dkk': 'DKK', 'danish krone': 'DKK',
+    'rsd': 'RSD', 'serbian dinar': 'RSD',
+
     # Америка
+    'usd': 'USD', 'dollar': 'USD', '$': 'USD', 'us dollar': 'USD', 'dollars': 'USD',
     'cad': 'CAD', 'canadian dollar': 'CAD',
     'mxn': 'MXN', 'mexican peso': 'MXN',
     'brl': 'BRL', 'real': 'BRL', 'brazilian real': 'BRL',
     'ars': 'ARS', 'argentine peso': 'ARS',
     'cop': 'COP', 'colombian peso': 'COP', 'columbian': 'COP', 'columbian peso': 'COP',
     'clp': 'CLP', 'chilean peso': 'CLP',
-    # СНГ
-    'kzt': 'KZT', 'tenge': 'KZT', 'тенге': 'KZT',
-    'byn': 'BYN', 'belarusian ruble': 'BYN', 'бел руб': 'BYN',
-    'uah': 'UAH', 'hryvnia': 'UAH', 'гривна': 'UAH', 'грн': 'UAH',
-    'uzs': 'UZS', 'som': 'UZS', 'сум': 'UZS',
-    'gel': 'GEL', 'lari': 'GEL', 'лари': 'GEL',
-    'amd': 'AMD', 'dram': 'AMD', 'драм': 'AMD',
-    # Океания и Африка
+    'pen': 'PEN', 'sol': 'PEN',
+    'crc': 'CRC', 'colón': 'CRC',
+
+    # Азия
+    'cny': 'CNY', 'yuan': 'CNY', 'renminbi': 'CNY', 'rmb': 'CNY',
+    'jpy': 'JPY', 'yen': 'JPY', '¥': 'JPY',
+    'krw': 'KRW', 'won': 'KRW', 'korean won': 'KRW',
+    'inr': 'INR', 'indian rupee': 'INR', 'rupees': 'INR', 'indrian rupies': 'INR', 'rupee': 'INR',
+    'idr': 'IDR', 'rupiah': 'IDR', 'indonesian rupiah': 'IDR',
+    'myr': 'MYR', 'ringgit': 'MYR', 'malaysian ringgit': 'MYR',
+    'sgd': 'SGD', 'singapore dollar': 'SGD',
+    'php': 'PHP', 'peso': 'PHP', 'philippine peso': 'PHP',
+    'thb': 'THB', 'baht': 'THB', 'thai baht': 'THB',
+    'vnd': 'VND', 'dong': 'VND', 'vietnamese dong': 'VND',
+    'twd': 'TWD', 'new taiwan dollar': 'TWD',
+    'hkd': 'HKD', 'hong kong dollar': 'HKD',
+    'pkr': 'PKR', 'pakistani rupee': 'PKR',
+    'bdt': 'BDT', 'taka': 'BDT',
+
+    # Ближний Восток
+    'aed': 'AED', 'dirham': 'AED', 'uae dirham': 'AED',
+    'kwd': 'KWD', 'kuwaiti dinar': 'KWD', 'kuwaiti': 'KWD', 'dinar': 'KWD',
+    'sar': 'SAR', 'riyal': 'SAR', 'saudi riyal': 'SAR',
+    'qar': 'QAR', 'qatari riyal': 'QAR',
+    'omr': 'OMR', 'omani rial': 'OMR',
+    'bhd': 'BHD', 'bahraini dinar': 'BHD',
+    'ils': 'ILS', 'shekel': 'ILS', 'israeli new shekel': 'ILS',
+    'jod': 'JOD', 'jordanian dinar': 'JOD',
+    'lbp': 'LBP', 'lebanese pound': 'LBP',
+    'try': 'TRY', 'lira': 'TRY', 'turkish lira': 'TRY',
+
+    # Африка и Океания
     'aud': 'AUD', 'australian dollar': 'AUD',
     'nzd': 'NZD', 'new zealand dollar': 'NZD',
     'zar': 'ZAR', 'rand': 'ZAR', 'south african rand': 'ZAR',
     'egp': 'EGP', 'egyptian pound': 'EGP',
     'mad': 'MAD', 'moroccan dirham': 'MAD',
-    # Криптовалюты
+    'ngn': 'NGN', 'naira': 'NGN',
+    'kes': 'KES', 'kenyan shilling': 'KES',
+
+    # СНГ
+    'kzt': 'KZT', 'tenge': 'KZT', 'тенге': 'KZT',
+    'byn': 'BYN', 'belarusian ruble': 'BYN',
+    'uah': 'UAH', 'hryvnia': 'UAH', 'гривна': 'UAH',
+    'uzs': 'UZS', 'som': 'UZS', 'сум': 'UZS',
+    'gel': 'GEL', 'lari': 'GEL', 'лари': 'GEL',
+    'amd': 'AMD', 'dram': 'AMD', 'драм': 'AMD',
+    'azn': 'AZN', 'manat': 'AZN',
+
+    # Крипта
     'btc': 'BTC', 'bitcoin': 'BTC',
     'eth': 'ETH', 'ethereum': 'ETH',
     'usdt': 'USDT', 'tether': 'USDT'
@@ -95,13 +120,16 @@ def normalize_currency(val):
     
     val_lower = val.strip().lower()
     
+    # 1. Прямое совпадение
     if val_lower in CURRENCY_MAP:
         return CURRENCY_MAP[val_lower]
         
+    # 2. Поиск по подстроке (например, "kuwaiti dinar 200")
     for key, code in CURRENCY_MAP.items():
         if key in val_lower:
             return code
             
+    # 3. Если 3 буквы — делаем капсом
     if len(val_lower) == 3:
         return val_lower.upper()
         
@@ -109,23 +137,52 @@ def normalize_currency(val):
 
 
 def robust_read_csv(file_path):
-    """Бронебойное чтение CSV с перебором разделителей. Защита от слипания строк."""
-    try:
-        df = pd.read_csv(file_path, sep=None, engine='python', dtype=str, on_bad_lines='skip')
-        if len(df.columns) > 1:
-            return df
-    except Exception:
-        pass
+    """
+    Бронебойное чтение с авто-починкой СМЕЩЕННЫХ строк.
+    """
+    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        first_line = f.readline()
+        
+    sep = ','
+    if ';' in first_line: sep = ';'
+    elif '\t' in first_line: sep = '\t'
+    elif '|' in first_line: sep = '|'
     
-    for sep in [';', ',', '\t', '|']:
-        try:
-            df = pd.read_csv(file_path, sep=sep, dtype=str, on_bad_lines='skip')
-            if len(df.columns) > 1:
-                return df
-        except Exception:
-            continue
+    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        reader = csv.reader(f, delimiter=sep)
+        rows = list(reader)
+        
+    if not rows:
+        return pd.DataFrame()
+        
+    header = [str(x).strip() for x in rows[0]]
+    expected_len = len(header)
+    
+    fixed_rows = []
+    for row in rows[1:]:
+        if not any(row): continue
+        
+        # ЕСЛИ СТОЛБЦЫ СМЕСТИЛИСЬ ИЗ-ЗА ЛИШНЕЙ ЗАПЯТОЙ
+        if len(row) > expected_len:
+            diff = len(row) - expected_len
+            # Склеиваем лишние данные в одной ячейке (обычно во 2-й колонке FIO), 
+            # чтобы остальные важные данные встали на свои законные места.
+            left_part = row[:1]
+            middle_part = [" ".join(row[1:1+diff+1])]
+            right_part = row[1+diff+1:]
+            fixed_row = left_part + middle_part + right_part
+            fixed_rows.append(fixed_row)
             
-    return pd.read_csv(file_path, sep=',', dtype=str, on_bad_lines='skip')
+        # ЕСЛИ КОЛОНОК НЕ ХВАТАЕТ
+        elif len(row) < expected_len:
+            row.extend([''] * (expected_len - len(row)))
+            fixed_rows.append(row)
+            
+        else:
+            fixed_rows.append(row)
+            
+    return pd.DataFrame(fixed_rows, columns=header)
+
 
 def standardize_dataframe(df):
     new_df = pd.DataFrame()
@@ -179,7 +236,7 @@ def standardize_dataframe(df):
     return new_df
 
 def save_excel_perfect(df, filename):
-    """Сохранение XLSX с выделенной шапкой и широкими колонками."""
+    """Сохранение XLSX с выделенной шапкой и широкими колонками (защита от наложения)."""
     writer = pd.ExcelWriter(filename, engine='openpyxl')
     df.to_excel(writer, index=False, sheet_name='Data')
     worksheet = writer.sheets['Data']
@@ -223,7 +280,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{doc.file_id}_{doc.file_name}"
     await file.download_to_drive(file_path)
     
-    msg = await update.message.reply_text("Обрабатываю файлы (сборка таблиц, форматирование и валюты)...")
+    msg = await update.message.reply_text("Обрабатываю файлы (чиню сдвиги колонок и конвертирую валюты)...")
 
     try:
         dfs = []
@@ -255,7 +312,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chunk = standardized_df.iloc[start_idx:end_idx]
             current_chunk_rows = len(chunk)
             
-            # Название файла с количеством строк (e.g. output_part_1_1000rows.xlsx)
+            # Сохранение с указанием количества строк
             out_name = f"output_part_{part + 1}_{current_chunk_rows}rows.xlsx"
             save_excel_perfect(chunk, out_name)
             
