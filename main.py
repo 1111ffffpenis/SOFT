@@ -8,28 +8,19 @@ from openpyxl.styles import Font, PatternFill
 
 USER_SETTINGS = {}
 
-# Единый целевой формат колонок
+# --- ЦЕЛЕВЫЕ КОЛОНКИ ---
 TARGET_COLUMNS = [
     'id', 'fio', 'check_in', 'check_out', 'price', 'currency', 
     'email', 'phone', 'hotel_name', 'address', 'image', 'urls'
 ]
 
-# Фиксированные гарантированные ширины колонок для защиты от наложения текста
+# --- ШИРИНА КОЛОНОК (ЗАЩИТА ОТ НАЛОЖЕНИЯ ТЕКСТА) ---
 COLUMN_WIDTHS = {
-    'A': 18, # id
-    'B': 28, # fio
-    'C': 14, # check_in
-    'D': 14, # check_out
-    'E': 14, # price
-    'F': 14, # currency
-    'G': 32, # email
-    'H': 18, # phone
-    'I': 35, # hotel_name
-    'J': 45, # address
-    'K': 35, # image
-    'L': 25  # urls
+    'A': 18, 'B': 28, 'C': 14, 'D': 14, 'E': 14, 'F': 14, 
+    'G': 32, 'H': 18, 'I': 35, 'J': 45, 'K': 35, 'L': 25
 }
 
+# --- УМНЫЕ СИНОНИМЫ КОЛОНОК ---
 COLUMN_ALIASES = {
     'id': ['id', 'resv_id', 'booking_id', 'reservation_id', 'reservation', 'order_id', 'номер_брони', 'номер', 'src_id', 'room_id'],
     'fio': ['fio', 'guest_name', 'customer_name', 'guest', 'name', 'full_name', 'фио', 'имя', 'клиент'],
@@ -45,8 +36,80 @@ COLUMN_ALIASES = {
     'urls': ['urls', 'url', 'link', 'links', 'ссылка', 'ссылки']
 }
 
+# --- МАКСИМАЛЬНЫЙ СЛОВАРЬ ВАЛЮТ ---
+CURRENCY_MAP = {
+    # Базовые
+    'euro': 'EUR', 'eur': 'EUR', '€': 'EUR', 'euros': 'EUR',
+    'usd': 'USD', 'dollar': 'USD', '$': 'USD', 'us dollar': 'USD', 'dollars': 'USD',
+    # Азия и Ближний Восток
+    'inr': 'INR', 'indian rupee': 'INR', 'rupees': 'INR', 'indrian rupies': 'INR', 'rupee': 'INR',
+    'aed': 'AED', 'dirham': 'AED', 'uae dirham': 'AED',
+    'thb': 'THB', 'baht': 'THB', 'thai baht': 'THB',
+    'cny': 'CNY', 'yuan': 'CNY', 'renminbi': 'CNY', 'rmb': 'CNY',
+    'jpy': 'JPY', 'yen': 'JPY', '¥': 'JPY',
+    'krw': 'KRW', 'won': 'KRW', 'korean won': 'KRW',
+    'idr': 'IDR', 'rupiah': 'IDR', 'indonesian rupiah': 'IDR',
+    'myr': 'MYR', 'ringgit': 'MYR', 'malaysian ringgit': 'MYR',
+    'sgd': 'SGD', 'singapore dollar': 'SGD',
+    'php': 'PHP', 'peso': 'PHP', 'philippine peso': 'PHP',
+    'vnd': 'VND', 'dong': 'VND', 'vietnamese dong': 'VND',
+    # Европа (вне еврозоны)
+    'rub': 'RUB', 'ruble': 'RUB', 'руб': 'RUB', 'рубль': 'RUB', 'рублей': 'RUB',
+    'gbp': 'GBP', 'pound': 'GBP', '£': 'GBP', 'pounds': 'GBP',
+    'chf': 'CHF', 'swiss franc': 'CHF',
+    'pln': 'PLN', 'zloty': 'PLN', 'polish zloty': 'PLN',
+    'czk': 'CZK', 'koruna': 'CZK', 'czech koruna': 'CZK',
+    'huf': 'HUF', 'forint': 'HUF', 'hungarian forint': 'HUF',
+    'ron': 'RON', 'leu': 'RON', 'romanian leu': 'RON',
+    'bgn': 'BGN', 'lev': 'BGN', 'bulgarian lev': 'BGN',
+    'try': 'TRY', 'lira': 'TRY', 'turkish lira': 'TRY', 'tl': 'TRY',
+    # Америка
+    'cad': 'CAD', 'canadian dollar': 'CAD',
+    'mxn': 'MXN', 'mexican peso': 'MXN',
+    'brl': 'BRL', 'real': 'BRL', 'brazilian real': 'BRL',
+    'ars': 'ARS', 'argentine peso': 'ARS',
+    'cop': 'COP', 'colombian peso': 'COP', 'columbian': 'COP', 'columbian peso': 'COP',
+    'clp': 'CLP', 'chilean peso': 'CLP',
+    # СНГ
+    'kzt': 'KZT', 'tenge': 'KZT', 'тенге': 'KZT',
+    'byn': 'BYN', 'belarusian ruble': 'BYN', 'бел руб': 'BYN',
+    'uah': 'UAH', 'hryvnia': 'UAH', 'гривна': 'UAH', 'грн': 'UAH',
+    'uzs': 'UZS', 'som': 'UZS', 'сум': 'UZS',
+    'gel': 'GEL', 'lari': 'GEL', 'лари': 'GEL',
+    'amd': 'AMD', 'dram': 'AMD', 'драм': 'AMD',
+    # Океания и Африка
+    'aud': 'AUD', 'australian dollar': 'AUD',
+    'nzd': 'NZD', 'new zealand dollar': 'NZD',
+    'zar': 'ZAR', 'rand': 'ZAR', 'south african rand': 'ZAR',
+    'egp': 'EGP', 'egyptian pound': 'EGP',
+    'mad': 'MAD', 'moroccan dirham': 'MAD',
+    # Криптовалюты
+    'btc': 'BTC', 'bitcoin': 'BTC',
+    'eth': 'ETH', 'ethereum': 'ETH',
+    'usdt': 'USDT', 'tether': 'USDT'
+}
+
+def normalize_currency(val):
+    if pd.isna(val) or not isinstance(val, str):
+        return val
+    
+    val_lower = val.strip().lower()
+    
+    if val_lower in CURRENCY_MAP:
+        return CURRENCY_MAP[val_lower]
+        
+    for key, code in CURRENCY_MAP.items():
+        if key in val_lower:
+            return code
+            
+    if len(val_lower) == 3:
+        return val_lower.upper()
+        
+    return val.title()
+
+
 def robust_read_csv(file_path):
-    """Чтение CSV/TXT с подбором разделителя для предотвращения сжатия столбцов."""
+    """Бронебойное чтение CSV с перебором разделителей. Защита от слипания строк."""
     try:
         df = pd.read_csv(file_path, sep=None, engine='python', dtype=str, on_bad_lines='skip')
         if len(df.columns) > 1:
@@ -65,9 +128,7 @@ def robust_read_csv(file_path):
     return pd.read_csv(file_path, sep=',', dtype=str, on_bad_lines='skip')
 
 def standardize_dataframe(df):
-    """Приводит колонки к единому стандарту и заполняет недостающие поля."""
     new_df = pd.DataFrame()
-    
     df_cols = {}
     for col in df.columns:
         norm_col = re.sub(r'[\s\.\-]+', '_', str(col).strip().lower())
@@ -100,7 +161,11 @@ def standardize_dataframe(df):
         else:
             new_df[target] = pd.NA
 
-    # Шаблоны по умолчанию
+    # Форматирование валюты
+    if 'currency' in new_df.columns:
+        new_df['currency'] = new_df['currency'].apply(normalize_currency)
+
+    # Дефолтные значения (отель, адрес, картинка)
     mask_hotel = new_df['hotel_name'].isna() & new_df['id'].notna() & (new_df['id'] != '')
     clean_ids = new_df['id'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
     new_df.loc[mask_hotel, 'hotel_name'] = "Hotel confirmation for reservation " + clean_ids[mask_hotel]
@@ -114,16 +179,14 @@ def standardize_dataframe(df):
     return new_df
 
 def save_excel_perfect(df, filename):
-    """Сохраняет XLSX с фиксированными широкими колонками и форматированием."""
+    """Сохранение XLSX с выделенной шапкой и широкими колонками."""
     writer = pd.ExcelWriter(filename, engine='openpyxl')
     df.to_excel(writer, index=False, sheet_name='Data')
     worksheet = writer.sheets['Data']
     
-    # Задаем гарантированную ширину столбцов
     for col_letter, width in COLUMN_WIDTHS.items():
         worksheet.column_dimensions[col_letter].width = width
         
-    # Выделяем шапку серым фоном и жирным шрифтом
     header_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
     header_font = Font(bold=True)
     for cell in worksheet[1]:
@@ -160,7 +223,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{doc.file_id}_{doc.file_name}"
     await file.download_to_drive(file_path)
     
-    msg = await update.message.reply_text("Обрабатываю файлы и форматирую таблицу...")
+    msg = await update.message.reply_text("Обрабатываю файлы (сборка таблиц, форматирование и валюты)...")
 
     try:
         dfs = []
@@ -192,6 +255,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chunk = standardized_df.iloc[start_idx:end_idx]
             current_chunk_rows = len(chunk)
             
+            # Название файла с количеством строк (e.g. output_part_1_1000rows.xlsx)
             out_name = f"output_part_{part + 1}_{current_chunk_rows}rows.xlsx"
             save_excel_perfect(chunk, out_name)
             
