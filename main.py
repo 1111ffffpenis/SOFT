@@ -106,14 +106,16 @@ def advanced_fix_rows(df):
             
             if shift < 0:
                 vals = [''] * abs(shift) + vals
-                vals = vals[:12]
             elif shift > 0:
                 if 1+shift < len(vals):
                     merged_fio = " ".join([v for v in vals[1:1+shift+1] if v])
                     vals = [vals[0], merged_fio] + vals[1+shift+1:]
-                    vals = vals + [''] * (12 - len(vals))
-                    vals = vals[:12]
-                    
+        
+        # ВОТ ИСПРАВЛЕНИЕ ОШИБКИ: 
+        # Принудительно добиваем длину списка до 12 пустóтами (в любом случае!)
+        vals = vals + [''] * (12 - len(vals))
+        vals = vals[:12]
+        
         fixed_rows.append(vals)
         
     return pd.DataFrame(fixed_rows, columns=TARGET_COLUMNS)
@@ -132,7 +134,6 @@ def standardize_dataframe(df_raw):
     new_df = pd.DataFrame()
     
     if is_headerless:
-        # ФАЙЛ БЕЗ ЗАГОЛОВКОВ (EURO)
         new_df['id'] = df_raw.iloc[:, 1] if len(df_raw.columns) > 1 else pd.NA
         new_df['fio'] = df_raw.iloc[:, 2] if len(df_raw.columns) > 2 else pd.NA
         new_df['check_in'] = df_raw.iloc[:, 3] if len(df_raw.columns) > 3 else pd.NA
@@ -142,7 +143,6 @@ def standardize_dataframe(df_raw):
         new_df['email'] = df_raw.iloc[:, 7] if len(df_raw.columns) > 7 else pd.NA
         new_df['phone'] = df_raw.iloc[:, 8] if len(df_raw.columns) > 8 else pd.NA
     else:
-        # ФАЙЛ С ЗАГОЛОВКАМИ (BOOKINGS)
         headers = df_raw.iloc[0]
         df_data = df_raw.iloc[1:].copy()
         
@@ -152,7 +152,7 @@ def standardize_dataframe(df_raw):
             df_cols[norm_col] = col_idx
             
         used_cols = set()
-        for target in TARGET_COLUMNS[:8]: # Ищем только первые 8 колонок (остальные жестко перезапишем!)
+        for target in TARGET_COLUMNS[:8]:
             matched_idx = None
             aliases = COLUMN_ALIASES.get(target, [target])
             for alias in aliases:
@@ -173,23 +173,20 @@ def standardize_dataframe(df_raw):
             else:
                 new_df[target] = pd.NA
 
-    # 1. ЧИНИМ СДВИГИ СТРОК
+    # Чиним сдвиги и добиваем до 12 колонок
     new_df = advanced_fix_rows(new_df)
 
-    # 2. КОНВЕРТИРУЕМ ВАЛЮТУ
     if 'currency' in new_df.columns:
         new_df['currency'] = new_df['currency'].apply(normalize_currency)
 
-    # 3. ЖЕСТКО ВСТАВЛЯЕМ ТВОИ ШАБЛОНЫ В КАЖДУЮ СТРОКУ (КАК ТЫ И ПРОСИЛ!)
-    # Очищаем ID от возможных .0 в конце
+    # ЖЕСТКИЕ ШАБЛОНЫ В КАЖДУЮ СТРОКУ
     clean_ids = new_df['id'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
-    
     new_df['hotel_name'] = "Hotel confirmation for reservation " + clean_ids
     new_df['address'] = "You need to confirm your booking. This is required for verification purposes."
     new_df['image'] = "https://i.ibb.co/C5dHd4fv/image.png"
     new_df['urls'] = pd.NA
 
-    # Удаляем пустые строки (если ID и Имя пустые)
+    # Вычищаем полностью пустые строки
     new_df.replace('', pd.NA, inplace=True)
     new_df.dropna(subset=['id', 'fio'], how='all', inplace=True)
     new_df.fillna('', inplace=True)
@@ -237,7 +234,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{doc.file_id}_{doc.file_name}"
     await file.download_to_drive(file_path)
     
-    msg = await update.message.reply_text("Обрабатываю файлы (формирую шаблон, чиню строки и валюты)...")
+    msg = await update.message.reply_text("Обрабатываю файлы...")
 
     try:
         dfs = []
