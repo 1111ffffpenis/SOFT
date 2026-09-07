@@ -8,11 +8,13 @@ from openpyxl.styles import Font, PatternFill
 
 USER_SETTINGS = {}
 
+# --- ТВОЯ ЭТАЛОННАЯ СТРУКТУРА ИЗ BOOKINGS_UNIQUE ---
 TARGET_COLUMNS = [
     'id', 'fio', 'check_in', 'check_out', 'price', 'currency', 
     'email', 'phone', 'hotel_name', 'address', 'image', 'urls'
 ]
 
+# Фиксированная ширина ячеек для красоты в Excel
 COLUMN_WIDTHS = {
     'A': 18, 'B': 28, 'C': 14, 'D': 14, 'E': 14, 'F': 14, 
     'G': 32, 'H': 18, 'I': 35, 'J': 45, 'K': 35, 'L': 25
@@ -33,7 +35,7 @@ COLUMN_ALIASES = {
     'urls': ['urls', 'url', 'link', 'links', 'ссылка', 'ссылки']
 }
 
-# --- ПОЛНЫЙ СЛОВАРЬ ВАЛЮТ ---
+# --- ПОЛНЫЙ СЛОВАРЬ ВСЕХ ВАЛЮТ МИРА ---
 CURRENCY_MAP = {
     'euro': 'EUR', 'eur': 'EUR', '€': 'EUR', 'euros': 'EUR',
     'chf': 'CHF', 'swiss franc': 'CHF', 'switzerland franc': 'CHF',
@@ -82,30 +84,9 @@ def normalize_currency(val):
     if len(val_lower) == 3: return val_lower.upper()
     return val.title()
 
-def process_headers(df):
-    """Определяет, если первая строка - это сами данные, а не заголовки (Headerless CSV)"""
-    if df.empty: return df
-    cols = list(df.columns)
-    date_pat = re.compile(r'\d{2,4}[-/\.]\d{2}[-/\.]\d{2,4}')
-    email_pat = re.compile(r'^[\w\.-]+@[\w\.-]+\.\w+$')
-    
-    is_data = False
-    for c in cols:
-        cstr = str(c).strip()
-        # Если название колонки - это дата, email или длинный ID (число)
-        if date_pat.search(cstr) or email_pat.search(cstr) or re.match(r'^\d{8,15}$', cstr):
-            is_data = True
-            break
-            
-    if is_data:
-        # Превращаем заголовки в первую строку данных
-        new_row = pd.DataFrame([cols], columns=range(len(cols)))
-        df.columns = range(len(cols))
-        df = pd.concat([new_row, df], ignore_index=True)
-    return df
 
 def robust_read_csv(file_path):
-    """Бронебойное чтение с учетом ЛЮБЫХ кодировок и разделителей."""
+    """Железобетонное чтение файла, которое съест любую кодировку и любой разделитель."""
     encodings = ['utf-8-sig', 'utf-8', 'cp1251', 'latin1']
     seps = [',', ';', '\t', '|']
     
@@ -114,19 +95,19 @@ def robust_read_csv(file_path):
             try:
                 df = pd.read_csv(file_path, sep=sep, dtype=str, encoding=enc, on_bad_lines='skip')
                 if len(df.columns) > 1:
-                    return process_headers(df)
+                    return df
             except Exception:
                 continue
                 
-    # Крайний Фолбэк
+    # Крайний случай, если ни один из разделителей не подошел идеально
     try:
-        df = pd.read_csv(file_path, sep=',', dtype=str, on_bad_lines='skip')
-        return process_headers(df)
+        return pd.read_csv(file_path, sep=',', dtype=str, encoding='utf-8-sig', on_bad_lines='skip')
     except:
         return pd.DataFrame()
 
+
 def advanced_fix_rows(df):
-    """УМНЫЙ ЯКОРНЫЙ АЛГОРИТМ. Ровняет съехавшие столбцы по дате."""
+    """Якорный алгоритм: центрует съехавшие строки (например, если пропал ID)."""
     date_pat = re.compile(r'\d{2,4}[-/\.]\d{2}[-/\.]\d{2,4}')
     fixed_rows = []
     
@@ -136,14 +117,12 @@ def advanced_fix_rows(df):
         
         if len(date_indices) >= 1:
             first_date_idx = date_indices[0]
-            shift = first_date_idx - 2 # 2 это целевой индекс 'check_in'
+            shift = first_date_idx - 2 # Целевой индекс даты заезда (check_in) это 2
             
             if shift < 0:
-                # Сдвиг ВЛЕВО (нет ID)
                 vals = [''] * abs(shift) + vals
                 vals = vals[:12]
             elif shift > 0:
-                # Сдвиг ВПРАВО (лишние ячейки перед датой)
                 if 1+shift < len(vals):
                     merged_fio = " ".join([v for v in vals[1:1+shift+1] if v])
                     vals = [vals[0], merged_fio] + vals[1+shift+1:]
@@ -154,17 +133,20 @@ def advanced_fix_rows(df):
         
     return pd.DataFrame(fixed_rows, columns=TARGET_COLUMNS)
 
+
 def standardize_dataframe(df):
-    new_df = pd.DataFrame()
+    """Подгоняет под эталонный шаблон Bookings_unique_part_7"""
+    # ЖЕСТКАЯ ПРИВЯЗКА: Создаем новую таблицу с таким же количеством строк, как в исходнике
+    new_df = pd.DataFrame(index=df.index)
+    
     df_cols = {}
     for col in df.columns:
-        norm_col = re.sub(r'[\s\.\-]+', '_', str(col).strip().lower())
+        # \ufeff - это невидимый маркер кодировки, из-за которого ломалось распознавание колонок!
+        norm_col = re.sub(r'[\s\.\-\ufeff]+', '_', str(col).strip().lower()).strip('_')
         df_cols[norm_col] = col
         
     used_cols = set()
-    matched_count = 0
     
-    # Пытаемся найти колонки по названиям
     for target in TARGET_COLUMNS:
         matched_col = None
         aliases = COLUMN_ALIASES.get(target, [target])
@@ -186,51 +168,34 @@ def standardize_dataframe(df):
         if matched_col:
             new_df[target] = df[matched_col]
             used_cols.add(matched_col)
-            matched_count += 1
         else:
             new_df[target] = pd.NA
 
-    # !!! ЖЕСТКИЙ ФОЛЛБЭК ОТ ПУСТЫХ СТРОК !!!
-    # Если бот не нашел названия колонок (совпало 2 и меньше), 
-    # он просто берет данные слева направо!
-    if matched_count <= 2:
-        new_df = pd.DataFrame()
-        for i, target in enumerate(TARGET_COLUMNS):
-            if i < len(df.columns):
-                new_df[target] = df.iloc[:, i]
-            else:
-                new_df[target] = pd.NA
-
-    # 1. Чиним смещения 
+    # 1. Применяем Якорный алгоритм для починки съехавших строк
     new_df = advanced_fix_rows(new_df)
 
-    # 2. Валюта
+    # 2. Конвертируем валюты во всех строках
     if 'currency' in new_df.columns:
         new_df['currency'] = new_df['currency'].apply(normalize_currency)
 
-    # 3. Дефолтные шаблоны (только если строка не пустая)
-    mask_hotel = new_df['hotel_name'].eq('') | new_df['hotel_name'].isna()
-    mask_id_valid = new_df['id'].notna() & (new_df['id'] != '')
-    valid_hotel_mask = mask_hotel & mask_id_valid
+    # 3. Добавляем стандартные данные (Только если есть ID или ФИО, чтобы не забивать пустые строки мусором)
+    mask_has_data = new_df['id'].notna() & (new_df['id'] != '') | new_df['fio'].notna() & (new_df['fio'] != '')
     
+    mask_hotel = new_df['hotel_name'].eq('') | new_df['hotel_name'].isna()
     clean_ids = new_df['id'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
-    new_df.loc[valid_hotel_mask, 'hotel_name'] = "Hotel confirmation for reservation " + clean_ids[valid_hotel_mask]
+    new_df.loc[mask_hotel & mask_has_data, 'hotel_name'] = "Hotel confirmation for reservation " + clean_ids[mask_hotel & mask_has_data]
 
     mask_addr = new_df['address'].eq('') | new_df['address'].isna()
-    # Заполняем адрес только если есть ID (чтобы не забивать пустые строки)
-    new_df.loc[mask_addr & mask_id_valid, 'address'] = "You need to confirm your booking. This is required for verification purposes."
+    new_df.loc[mask_addr & mask_has_data, 'address'] = "You need to confirm your booking. This is required for verification purposes."
 
     mask_img = new_df['image'].eq('') | new_df['image'].isna()
-    new_df.loc[mask_img & mask_id_valid, 'image'] = "https://i.ibb.co/C5dHd4fv/image.png"
-
-    # Удаляем полностью пустые строки
-    new_df.replace('', pd.NA, inplace=True)
-    new_df.dropna(how='all', inplace=True)
-    new_df.fillna('', inplace=True)
+    new_df.loc[mask_img & mask_has_data, 'image'] = "https://i.ibb.co/C5dHd4fv/image.png"
 
     return new_df
 
+
 def save_excel_perfect(df, filename):
+    """Сохраняем идеальный XLSX файл"""
     writer = pd.ExcelWriter(filename, engine='openpyxl')
     df.to_excel(writer, index=False, sheet_name='Data')
     worksheet = writer.sheets['Data']
@@ -245,6 +210,7 @@ def save_excel_perfect(df, filename):
         cell.font = header_font
 
     writer.close()
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -271,7 +237,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{doc.file_id}_{doc.file_name}"
     await file.download_to_drive(file_path)
     
-    msg = await update.message.reply_text("Восстанавливаю файл (активирован жесткий фоллбэк и защита от пустот)...")
+    msg = await update.message.reply_text("Обрабатываю файлы (сборка таблиц по эталону и конвертация валют)...")
 
     try:
         dfs = []
@@ -292,13 +258,11 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         combined_df = pd.concat(dfs, ignore_index=True)
+        
+        # Запускаем нашу строгую эталонную подгонку
         standardized_df = standardize_dataframe(combined_df)
         total_rows = len(standardized_df)
         
-        if total_rows == 0:
-            await msg.edit_text("Файл оказался абсолютно пустым.")
-            return
-
         parts_count = (total_rows + chunk_size - 1) // chunk_size
         
         for part in range(parts_count):
